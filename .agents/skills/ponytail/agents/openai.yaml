@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ponytail"
+  short_description: "Keep project changes small and complete"
+  default_prompt: "Use $ponytail to simplify this change without losing behavior."

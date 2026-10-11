@@ -1,78 +1,79 @@
-# Instagram Unfollowers · Read only
+# Instagram Unfollowers
 
-A static GitHub Pages site that lets you **copy a read-only Instagram follower checker**, run it in your own Instagram tab, and search, filter, and export accounts that do not follow you back.
+**Copy → paste into Instagram’s console → automatic CSV.**
 
-Target repository: **PetroTafilaj/InstagramUnfollowers**  
-Expected Pages URL after activation: **https://petrotafilaj.github.io/InstagramUnfollowers/**
+Site: **https://petrotafilaj.github.io/InstagramUnfollowers/**  
+Repository: **PetroTafilaj/InstagramUnfollowers**
 
-This is a modified version of the supplied InstagramUnfollowers bundle, originally based on [David Arroyo's project](https://github.com/davidarroyo1234/InstagramUnfollowers). The original project is MIT licensed. This project is independent of Instagram and Meta.
-
-## Changes
-
-- Removed the unfollow button, account mutation effect, mutation URL generator, history component, and mutation timing controls.
-- The scanner contains **one fetch call**, explicitly using **GET**, directed only to Instagram's follower/following API. No request body or CSRF cookie handling.
-- All displayed avatars are generated locally as SVG data URIs, including imported and cached users. No DiceBear requests or remote image requests.
-- Kept the original search by username/full name, verified/private/missing-photo filters, sorting and pagination, pause/resume, and account selection.
-- Kept local whitelist management, whitelist import/export, pasted usernames, clipboard copy, JSON export, and CSV export.
-- Kept English/Spanish switching and scan timing preferences.
-- Cached scans and preferences are separate from the original tool and keyed to the active Instagram account.
-- Incomplete scans remain labeled and are not cached as completed scans.
-- CSV export now handles Unicode, commas, quotes, line breaks, and `#`, and neutralizes spreadsheet formulas in text fields.
-
-## Publish on GitHub Pages
-
-1. While signed into **PetroTafilaj**, create a **public** repository named **InstagramUnfollowers**. Public repositories support GitHub Pages on GitHub Free.
-2. Upload this folder's **contents** at the repository root. `index.html`, `assets/`, and `.nojekyll` must be at the root, not inside another `InstagramUnfollowers/` folder. The project has no installation or build step.
-3. Open **Settings → Pages → Build and deployment**.
-4. Choose **Deploy from a branch**, then **main** and **/(root)**, and save.
-5. Wait for GitHub's Pages deployment to finish, then open the URL GitHub shows. The intended URL is `https://petrotafilaj.github.io/InstagramUnfollowers/`.
-
-[GitHub's publishing-source documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
-
-If the repository already exists, use its default branch and preserve unrelated files. GitHub Pages requires the repository owner or appropriate repository administration access to enable it.
+The script starts immediately, logs progress in the console, compares followers with following, and requests a CSV download when the scan is complete. It leaves Instagram’s page and styles intact. There is no scanner interface or Run Scan button.
 
 ## Use
 
-1. Open the published site and click **Copy code**. There is no download requirement.
-2. Open **https://www.instagram.com/** and sign into your account.
-3. Open your browser's Developer Tools → Console, inspect the copied code, paste it, and press Enter.
-4. Start the scan. The script uses the existing signed-in browser session to read followers and following, then compares them locally.
-5. Search or filter the results. **Copy list**, **JSON**, and **CSV** operate on the currently displayed filter/search/whitelist tab.
-6. Refresh the Instagram tab to return to Instagram's normal interface.
+1. Open the site and click **Copy code**. The animated confirmation appears only after clipboard success.
+2. Sign in at **https://www.instagram.com/** and open Developer Tools → Console.
+3. Paste the copied code and press **Enter**. Keep the tab open while progress is logged.
+4. The CSV downloads automatically after a complete scan. Its filename includes your account ID and the date.
 
-The landing page loads the scanner as text and copies it; it never executes the Instagram bundle. Clipboard permission failure selects the code for manual copying. Keep the scanner file on the same origin as the landing page.
+If clipboard permission is denied, the landing page selects the full script for manual copying. The confirmation supports Close, Got it, Escape, outside click, focus restoration and reduced motion.
 
-## Local checks
+Large lists can take several minutes. The scanner reads 50 users per page, waits between pages, and takes a longer rest every five pages. If Instagram limits requests or pagination fails, it stops with an explicit console error. It never presents a partial list as a complete CSV.
 
-Requires Node.js 18+ and no third-party packages:
+If the browser blocks the download, allow it or retry with `InstagramUnfollowers.exportCSV()` after the console reports completion.
+
+## Optional console commands
+
+```javascript
+InstagramUnfollowers.results                         // Complete or partial matches in memory
+InstagramUnfollowers.search('name')                  // Search username and full name
+InstagramUnfollowers.filter({ includePrivate: false, includeVerified: false })
+InstagramUnfollowers.filter({ includeWithoutPicture: false })
+InstagramUnfollowers.setWhitelist(['username'])       // In-memory exclusion list
+InstagramUnfollowers.filter({ whitelisted: true })
+InstagramUnfollowers.exportCSV({ search: 'name' })    // Download filtered results
+InstagramUnfollowers.exportJSON()                    // Download JSON
+InstagramUnfollowers.cancel()                        // Stop the active scan
+```
+
+Account matching and deduplication use stable IDs, not mutable usernames. Whitelist entries deliberately use the usernames you supply. Whitelist/search options affect additional exports; the first automatic CSV contains all non-followers.
+
+## Read-only scope
+
+- One authenticated **GET** fetch call, restricted to Instagram’s follower/following endpoints for the signed-in account. Redirects are rejected.
+- No unfollow controls or endpoint, account-changing requests, request body, CSRF-cookie access, remote avatars, or analytics.
+- No localStorage account cache. Results and whitelist live only in the tab’s JavaScript memory.
+- CSV fields are quoted; Unicode and punctuation are preserved, and formula-like text is neutralized.
+- A temporary hidden anchor requests the local file download, then is removed. No visible interface is added to Instagram.
+
+The landing page fetches the scanner **as text** and never executes it. See [SECURITY.md](SECURITY.md).
+
+## Develop and verify
+
+Buildless HTML/CSS/JavaScript. No installation, runtime dependencies, or build step. Requires Node.js 18+ for checks:
 
 ```bash
 npm test
 npm run check
 ```
 
-Tests cover network method/destination, errors, follower identity matching, a full paginated scan using mocked responses, filtering/search, pagination, local avatars, exports, whitelist/account storage isolation, and removal of the mutation controls. UI checks exercise the original components through a mocked rendering layer.
+The suite covers a complete paginated console scan, stable identity matching, automatic CSV, search/filter/whitelist and JSON export, rate limits, invalid responses, repeated cursors, account switches, cancellation, timeout, download errors, and copy-dialog success/failure/dismissal.
 
-The test suite does **not** log into Instagram or establish that its current internal API accepts these requests. No live Instagram scan or browser visual QA was performed for this release.
+Network and DOM tests use mocks. No live Instagram scan or browser visual QA was performed for this revision. Instagram’s internal API can change or refuse automated reads.
 
-## Patch provenance
+## Project skills
 
-`assets/scanner.js` is the finished runnable bundle. `scripts/patch-bundle.py` records the targeted edits to the exact uploaded original. It refuses an input with an unexpected SHA-256. The original bundle with account mutation functionality is intentionally not shipped.
+Repository-local skills are stored in `.agents/skills/` and routed by [AGENTS.md](AGENTS.md):
 
-To reproduce from your original attachment:
+- **ponytail** — adapted from DietrichGebert/ponytail; smallest complete implementation.
+- **pstack** — selected principles and code-quality guidance from backnotprop/pstack, adapted to this project.
+- **landing-page-design** — layout, native dialog animation, accessibility and copy-flow verification.
+- **thermo-nuclear-code-quality-review** — adapted from Cursor Team Kit’s strict review rubric.
 
-```bash
-python3 scripts/patch-bundle.py /absolute/path/to/original-bundle.txt
-npm test
-npm run check
-```
+Source references and MIT notices accompany the third-party material. These are project skills, not globally installed plugins or the full pstack orchestration suite.
 
-Do not regenerate from a changed upstream bundle without reviewing and updating the patches and tests.
+## GitHub Pages
 
-## Data and limits
+In repository **Settings → Pages**, choose **Deploy from a branch → main → /(root)** and save. `index.html`, `assets/`, and `.nojekyll` are at the repository root. Pages rebuilds when `main` changes; wait for the deployment to finish before refreshing and copying the new script.
 
-The script reads the `ds_user_id` account-ID cookie to address the logged-in account. It does not read passwords or CSRF cookies. Cookies managed by the browser accompany the same-origin GET requests. It stores scan results, the whitelist, language, and preferences in localStorage on **Instagram's origin**, not on this Pages website. JSON/CSV exports are generated in the browser. See [SECURITY.md](SECURITY.md) for scope and limitations.
+## Attribution
 
-Instagram's API is undocumented for this usage. Rate limits, challenges, API changes, and incomplete pagination can interrupt scans. GET-only behavior does not guarantee that Instagram will allow automated reads. Logging out afterward does not undo prior activity or clear localStorage.
-
-The bundled localhost preview uses upstream sample accounts; it is a demo, not an Instagram scan. Production usage must run in the `www.instagram.com` tab.
+Inspired by [David Arroyo’s InstagramUnfollowers](https://github.com/davidarroyo1234/InstagramUnfollowers), with the GET endpoint/header conventions retained. The current console scanner is a small readable replacement for the original UI bundle. The original license is retained, and skill licenses are included with their respective folders. Independent project; not affiliated with Instagram or Meta.

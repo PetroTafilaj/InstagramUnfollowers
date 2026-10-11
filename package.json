@@ -1,8 +1,11 @@
 {
   "name": "instagram-unfollowers-read-only",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "A static GitHub Pages launcher for a read-only Instagram follower checker",
+  "description": "Console-only Instagram follower checker with automatic CSV and an animated GitHub Pages launcher",
   "license": "MIT",
-  "scripts": {"test": "node --test tests/*.test.cjs", "check": "node --check assets/scanner.js && node --check assets/site.js"}
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check assets/scanner.js && node --check assets/site.js"
+  }
 }

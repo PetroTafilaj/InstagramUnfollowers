@@ -1,0 +1,4 @@
+interface:
+  display_name: "Thermo-Nuclear Code Quality Review"
+  short_description: "Audit correctness, safety and unnecessary code"
+  default_prompt: "Use $thermo-nuclear-code-quality-review to audit this change before publishing."

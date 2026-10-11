@@ -1,0 +1,4 @@
+interface:
+  display_name: "Landing Page Design"
+  short_description: "Polish the landing page and copy confirmation"
+  default_prompt: "Use $landing-page-design to refine the copy interaction and layout."

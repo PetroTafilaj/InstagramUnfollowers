@@ -2,264 +2,251 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
+const path = require('node:path');
 const script = fs.readFileSync(path.join(__dirname, '../assets/scanner.js'), 'utf8');
-
-function harness({ fetchResult, account = '123', stateOverride } = {}) {
-  const requests = [], downloads = [], blobs = new Map(), stored = new Map(), effects = [], hooks = [];
-  let hookIndex = 0;
-  const fakeReact = {
-    createElement(type, props, ...children) { return { type, props: { ...props, children: children.flat(Infinity) } }; },
-    Fragment: 'fragment',
-    useState(initial) {
-      const index = hookIndex++;
-      if (!(index in hooks)) hooks[index] = index === 0 && stateOverride ? stateOverride : typeof initial === 'function' ? initial() : initial;
-      return [hooks[index], next => { hooks[index] = typeof next === 'function' ? next(hooks[index]) : next; }];
-    },
-    useEffect(fn) { effects.push(fn); },
-    useRef(value) { return { current: value }; },
-    render(node) { context.root = node; },
-  };
-  const body = { appendChild() {}, innerHTML: '' };
-  const context = vm.createContext({
-    fakeReact, console, URL, URLSearchParams, Blob, Set, Map,
-    setTimeout(fn) { fn(); return 1; }, clearTimeout() {},
-    alert() {}, confirm() { return true; },
-    location: { hostname: 'www.instagram.com', search: '', reload() {} },
-    navigator: { language: 'en', clipboard: { writeText: async text => { context.copied = text; } } },
-    document: {
-      cookie: account ? `ds_user_id=${account}; unrelated=secret` : '', body,
-      querySelector() { return { appendChild() {} }; },
-      createElement(type) {
-        const element = { type, attrs: {}, setAttribute(key, value) { this.attrs[key] = value; }, appendChild() {}, remove() {}, click() { downloads.push(this); } };
-        return element;
-      },
-      createTextNode(text) { return { text }; },
-    },
-    localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) },
-    fetch: async (url, init) => { requests.push({ url, init }); return fetchResult || { ok: true, json: async () => ({ users: [], status: 'ok' }) }; },
-  });
-  context.window = { addEventListener() {}, removeEventListener() {} };
-  context.URL = class extends URL {
-    static createObjectURL(blob) { const key = `blob:test-${blobs.size}`; blobs.set(key, blob); return key; }
-    static revokeObjectURL() {}
-  };
-  const exposed = script.replace('n.nc=void 0,n(221)', 'n.nc=void 0,e[763]=function(e){e.exports=fakeReact},globalThis.modules=n,globalThis.avatar=localAvatar');
-  assert.notEqual(exposed, script);
-  vm.runInContext(exposed, context);
-  return { context, utils: context.modules(135), requests, downloads, blobs, stored, effects, hooks,
-    resetHooks() { hookIndex = 0; effects.length = 0; } };
-}
-const user = (id, username, extra = {}) => ({ id, username, full_name: username, is_private: false, is_verified: false, follows_viewer: false, profile_pic_url: 'https://instagram.example/photo.jpg', ...extra });
-const filters = { showPrivate: true, showVerified: true, showWithOutProfilePicture: true };
+const site = fs.readFileSync(path.join(__dirname, '../assets/site.js'), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
-const treeNodes = node => {
-  if (!node || typeof node !== 'object') return [];
-  return [node, ...(node.props?.children || []).flatMap(treeNodes)];
-};
+const raw = (id, username, extra = {}) => ({ pk: id, username, full_name: username, ...extra });
+function harness({ pages, fetchImpl, account = '123', hostname = 'www.instagram.com', pauseWaits = false } = {}) {
+  const requests = [], downloads = [], blobs = new Map(), logs = [], timers = new Map();
+  let timerId = 0;
+  const body = {
+    appendChild(element) { assert.equal(element.type, 'a'); assert.equal(element.hidden, true); },
+    get innerHTML() { throw new Error('Scanner must not inspect page HTML'); },
+    set innerHTML(value) { throw new Error('Scanner must not replace Instagram UI'); },
+  };
+  const context = vm.createContext({
+    console: Object.fromEntries(['log', 'warn', 'error'].map(kind => [kind, (...values) => logs.push({ kind, values })])),
+    location: { hostname }, AbortController, Blob, URL, Set, Map,
+    document: {
+      cookie: account ? `other=ignore; ds_user_id=${account}; session=never_read` : '', body,
+      createElement(type) {
+        assert.equal(type, 'a');
+        return { type, click() { downloads.push(this); }, remove() { this.removed = true; } };
+      },
+      set title(value) { throw new Error('Scanner must not change document title'); },
+    },
+    setTimeout(fn, ms) {
+      const id = ++timerId; timers.set(id, { fn, ms });
+      if (ms <= 10000 && !pauseWaits) queueMicrotask(() => { if (timers.has(id)) { timers.delete(id); fn(); } });
+      return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      if (fetchImpl) return fetchImpl(url, init, context);
+      const parsed = new URL(url);
+      const kind = parsed.pathname.split('/').at(-2);
+      const page = pages?.[`${kind}:${parsed.searchParams.get('max_id') || ''}`] || { users: [], has_more: false };
+      return { ok: true, json: async () => page };
+    },
+  });
+  context.URL = class extends URL {
+    static createObjectURL(blob) { const key = `blob:local-${blobs.size}`; blobs.set(key, blob); return key; }
+    static revokeObjectURL(key) { blobs.delete(key); }
+  };
+  return {
+    context, requests, downloads, blobs, logs,
+    run() { return vm.runInContext(script, context); },
+    fireTimer(ms) { for (const [id, timer] of timers) if (timer.ms === ms) { timers.delete(id); timer.fn(); return; } throw new Error(`No ${ms}ms timer`); }
+  };
+}
 
-test('bundle has one explicit GET reader and no mutation or third-party avatar code', () => {
-  assert.equal((script.match(/fetch\(/g) || []).length, 1);
-  assert.match(script, /method:"GET"/);
-  for (const prohibited of [/method\s*:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i, /\/unfollow\//, /unfollowUserUrlGenerator/, /dicebear/i, /csrftoken/, /className:"unfollow"/, /status:"unfollowing"/, /sendBeacon/, /XMLHttpRequest\(/, /WebSocket\(/]) assert.doesNotMatch(script, prohibited);
+test('scanner contains one explicit GET and no UI, mutation endpoints, remote avatars or storage', () => {
+  assert.equal((script.match(/\bfetch\(/g) || []).length, 1);
+  assert.match(script, /method: 'GET'/);
+  for (const pattern of [/method\s*:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i, /\/unfollow\//, /dicebear/i, /csrftoken/, /innerHTML\s*=/, /createElement\(['"](?:div|img|style)/, /localStorage/, /sendBeacon/, /new\s+XMLHttpRequest\s*\(/, /eval\(/]) assert.doesNotMatch(script, pattern);
 });
 
-test('reader requests only followers/following with GET and fails on API errors', async () => {
-  const h = harness();
-  await h.utils.fetchFriendshipsPage('followers', undefined, 50);
-  await h.utils.fetchFriendshipsPage('following', 'page/next?foo=bar', 50);
-  assert.equal(h.requests.length, 2);
+test('console scan paginates both lists, matches follower identities and downloads CSV automatically', async () => {
+  const h = harness({ pages: {
+    'followers:': { users: [raw(1, 'alice')], has_more: true, next_max_id: 'page/2?x=1' },
+    'followers:page/2?x=1': { users: [{ pk_id: '2', username: 'BOB' }], has_more: false },
+    'following:': { users: [raw('1', 'alice'), raw('3', 'carol')], has_more: true, next_max_id: 'next' },
+    'following:next': { users: [raw('2', 'bob'), raw('4', 'dave'), raw('4', 'dave')], has_more: false },
+  } });
+  const result = plain(await h.run());
+  assert.equal(result.status, 'complete'); assert.equal(result.count, 2);
+  assert.equal(h.requests.length, 4); assert.equal(h.downloads.length, 1);
+  assert.equal(h.downloads[0].removed, true);
   for (const { url, init } of h.requests) {
     const parsed = new URL(url);
     assert.equal(parsed.origin, 'https://www.instagram.com');
     assert.match(parsed.pathname, /^\/api\/v1\/friendships\/123\/(followers|following)\/$/);
-    assert.equal(init.method, 'GET');
-    assert.equal(init.credentials, 'same-origin');
-    assert.equal(init.redirect, 'error');
-    assert.equal(init.body, undefined);
-    assert.equal(init.headers['X-CSRFToken'], undefined);
+    assert.equal(init.method, 'GET'); assert.equal(init.credentials, 'same-origin'); assert.equal(init.redirect, 'error');
+    assert.equal(init.body, undefined); assert.equal(init.headers['X-CSRFToken'], undefined);
   }
-  assert.equal(new URL(h.requests[1].url).searchParams.get('max_id'), 'page/next?foo=bar');
-  assert.throws(() => h.utils.friendshipsUrlGenerator('unfollow'), /Invalid reader/);
-  assert.throws(() => harness({ account: '' }).utils.friendshipsUrlGenerator('followers'), /logged-out/);
-  assert.throws(() => h.utils.friendshipsUrlGenerator('followers', undefined, 50, '123/../write'), /Invalid reader/);
-  const failed = harness({ fetchResult: { ok: false, status: 429 } });
-  await assert.rejects(failed.utils.fetchFriendshipsPage('followers'), /HTTP 429/);
+  assert.deepEqual(plain(h.context.InstagramUnfollowers.results).map(user => user.username), ['carol', 'dave']);
+  const csv = await h.blobs.get(h.downloads[0].href).text();
+  assert.match(csv, /"carol"/); assert.match(csv, /https:\/\/www.instagram.com\/dave\//); assert.doesNotMatch(csv, /"alice"|"bob"/);
+  assert.equal(h.context.InstagramUnfollowers.running, false);
 });
 
-test('follower comparison handles pk, pk_id, id and normalized usernames', () => {
-  const { utils } = harness();
-  const index = utils.createFollowerIndex();
-  utils.addFollowerToIndex(index, { pk: 1, username: 'Alice' });
-  utils.addFollowerToIndex(index, { pk_id: '2', username: 'bob' });
-  assert.equal(utils.isUserInFollowerIndex(index, { id: '1' }), true);
-  assert.equal(utils.isUserInFollowerIndex(index, { pk: '2' }), true);
-  assert.equal(utils.isUserInFollowerIndex(index, { username: ' ALICE ' }), true);
-  assert.equal(utils.isUserInFollowerIndex(index, { pk: '3', username: 'charlie' }), false);
+test('empty lists produce a header-only CSV', async () => {
+  const h = harness(); const result = await h.run();
+  assert.equal(result.status, 'complete'); assert.equal(result.count, 0); assert.equal(h.downloads.length, 1);
+  const csv = await h.blobs.get(h.downloads[0].href).text();
+  assert.equal(csv.split('\r\n').length, 1);
 });
 
-test('original filtering, search, whitelist tabs and pagination remain functional', () => {
-  const { utils } = harness();
-  const users = [user('1', 'alice', { full_name: 'Ada Example' }), user('2', 'bob', { is_private: true }), user('3', 'carol', { is_verified: true }), user('4', 'dave', { profile_pic_url: '' }), user('5', 'eve', { follows_viewer: true })];
-  const displayed = (filter = filters, term = '', tab = 'non_whitelisted', whitelist = []) => plain(utils.getUsersForDisplay(users, whitelist, tab, term, filter)).map(u => u.username);
-  assert.deepEqual(displayed(), ['alice', 'bob', 'carol', 'dave']);
-  assert.deepEqual(displayed({ ...filters, showPrivate: false }), ['alice', 'carol', 'dave']);
-  assert.deepEqual(displayed({ ...filters, showVerified: false }), ['alice', 'bob', 'dave']);
-  assert.deepEqual(displayed({ ...filters, showWithOutProfilePicture: false }), ['alice', 'bob', 'carol']);
-  assert.deepEqual(displayed(filters, 'ADA'), ['alice']);
-  assert.deepEqual(displayed(filters, 'BO'), ['bob']);
-  assert.deepEqual(displayed(filters, '', 'non_whitelisted', [users[0]]), ['bob', 'carol', 'dave']);
-  assert.deepEqual(displayed(filters, '', 'whitelisted', [users[0]]), ['alice']);
-  assert.equal(utils.getCurrentPageUnfollowers(Array.from({ length: 51 }, (_, i) => user(String(i), `user${String(i).padStart(2, '0')}`)), 2).length, 1);
+test('numeric usernames do not collide with other users numeric account IDs', async () => {
+  const h = harness({ pages: { 'following:': { users: [raw('1', '2'), raw('2', 'other')], has_more: false } } });
+  assert.equal((await h.run()).count, 2);
 });
 
-test('all avatars are local data URIs and cannot inject SVG markup', () => {
-  const h = harness();
-  for (const name of ['alice', '<script>', 'é', '', '5ive']) {
-    const url = h.context.avatar(name);
-    assert.match(url, /^data:image\/svg\+xml/);
-    const svg = decodeURIComponent(url.split(',')[1]);
-    assert.doesNotMatch(svg, /<script>|<image|href=/);
-  }
-  assert.equal(h.requests.length, 0);
-});
-
-test('JSON, clipboard and CSV exports work; CSV handles punctuation and formulas', async () => {
-  const h = harness();
-  const users = [user('1', 'alice', { full_name: '=HYPERLINK("https://example.invalid")' }), user('2', 'bob', { full_name: 'José, "Bob" #1\nNext line' })];
-  h.utils.exportToJSON(users);
-  const jsonLink = h.downloads.at(-1);
-  assert.deepEqual(JSON.parse(decodeURIComponent(jsonLink.attrs.href.split(',')[1])), users);
-  await h.utils.copyListToClipboard(users, 'Copied');
-  assert.match(h.context.copied, /alice/);
-  assert.match(h.context.copied, /bob/);
-  h.utils.exportToCSV(users);
-  const csvLink = h.downloads.at(-1);
-  const csv = await h.blobs.get(csvLink.href).text();
+test('CSV preserves Unicode, quotes, commas, hashes, newlines and neutralizes formulas', async () => {
+  const h = harness({ pages: { 'following:': { users: [raw('1', 'alice', { full_name: '=HYPERLINK("https://example.invalid")' }), raw('2', 'bob', { full_name: 'José, "Bob" #1\nNext line' })], has_more: false } } });
+  await h.run(); const csv = await h.blobs.get(h.downloads[0].href).text();
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example.invalid""\)"/);
   assert.match(csv, /"José, ""Bob"" #1\nNext line"/);
-  assert.equal(csvLink.download, 'instagram_unfollowers.csv');
-  assert.equal(h.requests.length, 0);
 });
 
-test('result UI has filters and whitelist controls but no unfollow action or remote images', () => {
-  const h = harness();
-  const state = { status: 'scanning', percentage: 100, results: [user('1', 'alice')], selectedResults: [user('1', 'alice')], whitelistedResults: [], currentTab: 'non_whitelisted', searchTerm: '', filter: filters, page: 1, isScanningActive: false };
-  const tree = h.context.modules(43).Searching({ state, lang: 'en', setState() {}, UserCheckIcon() {}, UserUncheckIcon() {} });
-  const nodes = treeNodes(tree);
-  assert.equal(nodes.filter(n => n.type === 'img').length, 1);
-  assert.match(nodes.find(n => n.type === 'img').props.src, /^data:/);
-  assert.equal(nodes.filter(n => n.type === 'input' && n.props.name).length, 3);
-  assert.ok(nodes.some(n => n.type === 'button' && String(n.props.className).includes('whitelist')));
-  assert.equal(nodes.some(n => n.props.className === 'unfollow'), false);
-  const settings = h.context.modules(18).SettingMenu({ currentTimings: { timeBetweenSearchCycles: 1000, timeToWaitAfterFiveSearchCycles: 10000, usersPerSearchCycle: 50 }, whitelistedUsers: [], lang: 'en' });
-  assert.equal(treeNodes(settings).some(n => /unfollow/i.test(n.props.id || '')), false);
+test('console search, filtering, whitelist and additional CSV/JSON exports work', async () => {
+  const h = harness({ pages: { 'following:': { users: [raw('1', 'alice', { full_name: 'Ada Example', is_verified: true }), raw('2', 'bob', { is_private: true, profile_pic_url: 'photo' }), raw('3', 'carol', { profile_pic_url: 'photo' })], has_more: false } } });
+  await h.run(); const api = h.context.InstagramUnfollowers;
+  assert.deepEqual(plain(api.search('ADA')).map(user => user.username), ['alice']);
+  assert.deepEqual(plain(api.filter({ includePrivate: false, includeVerified: false })).map(user => user.username), ['carol']);
+  assert.equal(api.filter({ includeWithoutPicture: false }).length, 2);
+  api.setWhitelist(['@BOB']); assert.equal(api.filter().length, 2); assert.equal(api.filter({ whitelisted: true })[0].username, 'bob');
+  api.exportCSV({ search: 'carol' }); api.exportJSON({ search: 'alice' });
+  assert.equal(h.downloads.length, 3);
+  assert.equal(JSON.parse(await h.blobs.get(h.downloads[2].href).text())[0].username, 'alice');
+  api.results[0].username = 'modified'; assert.equal(api.results[0].username, 'alice');
 });
 
-test('scan cache and whitelist are isolated per Instagram account', () => {
-  for (const account of ['123', '456']) {
-    const h = harness({ account });
-    const store = h.context.modules(717);
-    store.saveWhitelist([user('1', 'alice')]);
-    store.saveCachedScanResults([user('2', 'bob')]);
-    for (const key of h.stored.keys()) assert.match(key, new RegExp(`^iu_readonly_.*_${account}$`));
-    assert.equal(store.loadWhitelist()[0].username, 'alice');
-    assert.equal(store.loadCachedScanResults().results[0].username, 'bob');
+test('wrong origin or logged-out account makes no network request', async () => {
+  for (const options of [{ hostname: 'example.com' }, { account: '' }]) {
+    const h = harness(options); await h.run(); assert.equal(h.requests.length, 0); assert.equal(h.downloads.length, 0);
+    assert.ok(h.logs.some(log => log.kind === 'error'));
   }
 });
 
-test('landing page copies scanner source without executing it', () => {
-  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const js = fs.readFileSync(path.join(__dirname, '../assets/site.js'), 'utf8');
-  assert.doesNotMatch(html, /<script[^>]+src=["']assets\/scanner\.js/);
-  assert.match(js, /response\.text\(\)/);
-  assert.match(js, /clipboard\.writeText\(code\)/);
-  assert.doesNotMatch(js, /\beval\s*\(|new Function|\.innerHTML\s*=/);
+test('HTTP 429 stops immediately without exporting a complete CSV', async () => {
+  const h = harness({ fetchImpl: async () => ({ ok: false, status: 429 }) });
+  assert.equal((await h.run()).status, 'incomplete'); assert.equal(h.requests.length, 1); assert.equal(h.downloads.length, 0);
+  assert.match(h.context.InstagramUnfollowers.error, /429/);
+  assert.throws(() => h.context.InstagramUnfollowers.exportCSV(), /incomplete/);
 });
 
-test('full scan reads paginated follower/following lists and returns only non-followers', async () => {
-  const h = harness();
-  const responses = {
-    'followers:': { users: [{ pk: 1, username: 'alice' }], next_max_id: 'next', has_more: true },
-    'followers:next': { users: [{ pk_id: '2', username: 'bob' }], has_more: false },
-    'following:': { users: [{ pk: '1', username: 'alice' }, { pk: '3', username: 'carol' }], next_max_id: 'next', has_more: true },
-    'following:next': { users: [{ pk: '2', username: 'bob' }, { pk: '4', username: 'dave' }], has_more: false },
-  };
-  h.context.fetch = async (url, init) => {
-    h.requests.push({ url, init });
-    const parsed = new URL(url);
-    const type = parsed.pathname.split('/').at(-2);
-    const page = responses[`${type}:${parsed.searchParams.get('max_id') || ''}`];
-    assert.ok(page);
-    return { ok: true, json: async () => page };
-  };
-  h.context.modules(221);
-  assert.equal(typeof h.context.root.type, 'function');
-  h.resetHooks();
-  let tree = h.context.root.type({});
-  const launchNode = treeNodes(tree).find(n => n.props.onScan);
-  assert.ok(launchNode);
-  await launchNode.props.onScan();
-  assert.equal(h.hooks[0].status, 'scanning');
-  h.resetHooks();
-  tree = h.context.root.type({});
-  for (const effect of h.effects) effect();
-  // Drain the scanner's asynchronous state machine without real timers or a live account.
-  for (let i = 0; i < 100; i++) await new Promise(resolve => setImmediate(resolve));
-  assert.equal(h.requests.length, 4);
-  assert.ok(h.requests.every(r => r.init.method === 'GET'));
-  assert.deepEqual(plain(h.hooks[0].results).map(u => u.username), ['carol', 'dave']);
-  assert.equal(h.hooks[0].scanIncomplete, false);
-  assert.equal(h.hooks[0].isScanningActive, false);
-  assert.equal(h.hooks[0].percentage, 100);
-  assert.equal(h.context.modules(717).loadCachedScanResults().results.length, 2);
-});
-
-test('interrupted following scan remains partial and is not saved as a complete cache', async () => {
-  const h = harness();
-  h.context.console = { ...console, error() {} };
-  h.context.fetch = async (url, init) => {
-    h.requests.push({ url, init });
-    const parsed = new URL(url);
-    if (parsed.searchParams.has('max_id')) return { ok: false, status: 429 };
-    if (parsed.pathname.includes('/followers/')) return { ok: true, json: async () => ({ users: [], has_more: false }) };
-    return { ok: true, json: async () => ({ users: [{ pk: '3', username: 'carol' }], next_max_id: 'blocked-page', has_more: true }) };
-  };
-  h.context.modules(221);
-  h.resetHooks();
-  const initialTree = h.context.root.type({});
-  await treeNodes(initialTree).find(n => n.props.onScan).props.onScan();
-  h.resetHooks();
-  h.context.root.type({});
-  for (const effect of h.effects) effect();
-  for (let i = 0; i < 100; i++) await new Promise(resolve => setImmediate(resolve));
-  assert.equal(h.hooks[0].scanIncomplete, true);
-  assert.equal(h.hooks[0].isScanningActive, false);
-  assert.deepEqual(plain(h.hooks[0].results).map(u => u.username), ['carol']);
-  assert.equal(h.context.modules(717).loadCachedScanResults(), null);
-  assert.ok(h.requests.every(r => r.init.method === 'GET'));
-});
-
-for (const denied of [false, true]) test(`landing page ${denied ? 'selects source when clipboard is denied' : 'copies the complete scanner source'}`, async () => {
-  const elements = new Map();
-  for (const id of ['copy', 'select', 'source', 'copy-status', 'source-details', 'code-size']) {
-    elements.set(id, { disabled: true, events: {}, addEventListener(event, handler) { this.events[event] = handler; }, focus() { this.focused = true; }, select() { this.selected = true; } });
+test('invalid API responses and missing pagination cursors fail without downloading', async () => {
+  for (const page of [{ status: 'fail', message: 'checkpoint_required' }, { users: [raw('1', 'alice')], has_more: true }, { users: [{ pk: 1 }], has_more: false }]) {
+    const h = harness({ pages: { 'followers:': page } });
+    assert.equal((await h.run()).status, 'incomplete'); assert.equal(h.downloads.length, 0);
   }
-  const requests = [];
-  let copied;
+});
+
+test('repeated pagination cursors stop rather than loop or export incomplete results', async () => {
+  const h = harness({ pages: { 'followers:': { users: [raw('1', 'alice')], has_more: true, next_max_id: 'same' }, 'followers:same': { users: [raw('1', 'alice')], has_more: true, next_max_id: 'same' } } });
+  assert.equal((await h.run()).status, 'incomplete'); assert.equal(h.requests.length, 2); assert.equal(h.downloads.length, 0);
+  assert.match(h.context.InstagramUnfollowers.error, /repeated/);
+});
+
+test('an account switch during the scan stops without downloading', async () => {
+  const h = harness({ fetchImpl: async (_url, _init, context) => { context.document.cookie = 'ds_user_id=456'; return { ok: true, json: async () => ({ users: [], has_more: false }) }; } });
+  assert.equal((await h.run()).status, 'incomplete'); assert.equal(h.downloads.length, 0);
+  assert.match(h.context.InstagramUnfollowers.error, /account changed/);
+});
+
+test('cancellation interrupts a pending fetch and duplicate paste cannot start another scan', async () => {
+  const h = harness({ fetchImpl: async (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true })) });
+  const scan = h.run(); assert.equal(h.context.InstagramUnfollowers.running, true);
+  await h.run(); assert.equal(h.requests.length, 1);
+  h.context.InstagramUnfollowers.cancel(); assert.equal((await scan).status, 'incomplete'); assert.equal(h.downloads.length, 0);
+  assert.equal(h.context.InstagramUnfollowers.running, false);
+});
+
+test('timed-out requests stop with an explicit console error', async () => {
+  const h = harness({ fetchImpl: async (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true })) });
+  const scan = h.run(); h.fireTimer(30000);
+  assert.equal((await scan).status, 'incomplete'); assert.match(h.context.InstagramUnfollowers.error, /timed out/); assert.equal(h.downloads.length, 0);
+});
+
+function siteHarness(denied = false, reducedMotion = false) {
+  const elements = new Map(), timers = new Map(); let timerId = 0, copied;
+  for (const id of ['copy', 'copy-label', 'select', 'source', 'copy-status', 'source-details', 'code-size', 'copy-dialog', 'close-dialog', 'dialog-done']) {
+    const classes = new Set();
+    elements.set(id, {
+      disabled: true, open: false, events: {},
+      classList: { add: cls => classes.add(cls), remove: cls => classes.delete(cls), contains: cls => classes.has(cls) },
+      addEventListener(event, handler) { this.events[event] = handler; }, focus() { this.focused = true; }, select() { this.selected = true; },
+      showModal() { this.open = true; }, close() { this.open = false; },
+      getBoundingClientRect() { return { left: 10, right: 100, top: 10, bottom: 100 }; },
+    });
+  }
   const context = vm.createContext({
     document: { getElementById: id => elements.get(id) }, TextEncoder,
-    fetch: async (url, init) => { requests.push({ url, init }); return { ok: true, text: async () => script }; },
+    window: { matchMedia: () => ({ matches: reducedMotion }) },
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout: id => timers.delete(id),
+    fetch: async (_url, init) => { assert.equal(init.method, 'GET'); return { ok: true, text: async () => script }; },
     navigator: { clipboard: { writeText: async text => { if (denied) throw new Error('denied'); copied = text; } } },
   });
-  await vm.runInContext(fs.readFileSync(path.join(__dirname, '../assets/site.js'), 'utf8'), context);
-  assert.equal(elements.get('source').value, script);
-  assert.equal(elements.get('copy').disabled, false);
-  assert.equal(requests[0].init.method, 'GET');
-  await elements.get('copy').events.click();
-  if (denied) {
-    assert.equal(elements.get('source').selected, true);
-    assert.equal(elements.get('source-details').open, true);
-  } else assert.equal(copied, script);
+  return { elements, context, run: () => vm.runInContext(site, context), get copied() { return copied; },
+    fireTimer(ms) { for (const [id, timer] of timers) if (timer.ms === ms) { timers.delete(id); timer.fn(); return; } throw new Error('missing timer'); } };
+}
+
+test('landing page copies exact source and opens animated success confirmation', async () => {
+  const h = siteHarness(); await h.run(); await h.elements.get('copy').events.click();
+  assert.equal(h.copied, script); assert.equal(h.elements.get('source').value, script);
+  assert.equal(h.elements.get('copy-dialog').open, true); assert.equal(h.elements.get('copy-label').textContent, 'Copied');
+  assert.equal(h.elements.get('copy').classList.contains('is-copied'), true);
+  h.elements.get('dialog-done').events.click(); assert.equal(h.elements.get('copy-dialog').classList.contains('closing'), true);
+  h.fireTimer(180); assert.equal(h.elements.get('copy-dialog').open, false); assert.equal(h.elements.get('copy').focused, true);
+});
+
+test('clipboard failure selects the source without showing false success', async () => {
+  const h = siteHarness(true); await h.run(); await h.elements.get('copy').events.click();
+  assert.equal(h.elements.get('copy-dialog').open, false); assert.equal(h.elements.get('source').selected, true);
+  assert.match(h.elements.get('copy-status').textContent, /Clipboard access is unavailable/);
+});
+
+test('Escape and outside click close confirmation and reduced motion skips exit delay', async () => {
+  const h = siteHarness(false, true); await h.run(); await h.elements.get('copy').events.click();
+  let prevented = false;
+  h.elements.get('copy-dialog').events.cancel({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true); h.fireTimer(0); assert.equal(h.elements.get('copy-dialog').open, false);
+  await h.elements.get('copy').events.click();
+  h.elements.get('copy-dialog').events.click({ target: h.elements.get('copy-dialog'), clientX: 5, clientY: 5 });
+  h.fireTimer(0); assert.equal(h.elements.get('copy-dialog').open, false);
+});
+
+test('landing page never executes scanner text and copy confirmation supports reduced motion', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../assets/site.css'), 'utf8');
+  assert.doesNotMatch(html, /<script[^>]+src=["']assets\/scanner\.js/);
+  assert.doesNotMatch(site, /\beval\s*\(|new Function|\.innerHTML\s*=/);
+  assert.match(html, /<dialog[^>]+aria-labelledby="copied-title"/);
+  assert.match(css, /prefers-reduced-motion:\s*reduce/);
+});
+
+test('reassigned usernames cannot override differing stable account IDs', async () => {
+  const h = harness({ pages: { 'followers:': { users: [raw('1', 'alice')], has_more: false }, 'following:': { users: [raw('2', 'alice')], has_more: false } } });
+  assert.equal((await h.run()).count, 1);
+  assert.equal(h.context.InstagramUnfollowers.results[0].id, '2');
+});
+
+test('download exceptions preserve completed results and remove the hidden link', async () => {
+  const h = harness({ pages: { 'following:': { users: [raw('1', 'alice')], has_more: false } } });
+  const create = h.context.document.createElement;
+  let anchor;
+  h.context.document.createElement = type => {
+    anchor = create(type);
+    anchor.click = () => { throw new Error('Download blocked'); };
+    return anchor;
+  };
+  const result = plain(await h.run());
+  assert.equal(result.status, 'complete'); assert.equal(result.csv, null);
+  assert.equal(h.context.InstagramUnfollowers.complete, true); assert.equal(h.context.InstagramUnfollowers.results.length, 1);
+  assert.equal(anchor.removed, true); assert.equal(h.blobs.size, 0);
+  assert.ok(h.logs.some(log => log.kind === 'error' && log.values[0].includes('Retry with InstagramUnfollowers.exportCSV()')));
+});
+
+test('a clipboard denial after success resets success styling and exposes selected fallback', async () => {
+  const h = siteHarness(); await h.run(); await h.elements.get('copy').events.click();
+  assert.equal(h.elements.get('copy').classList.contains('is-copied'), true);
+  h.elements.get('dialog-done').events.click(); h.fireTimer(180);
+  h.context.navigator.clipboard.writeText = async () => { throw new Error('denied'); };
+  await h.elements.get('copy').events.click();
+  assert.equal(h.elements.get('copy').classList.contains('is-copied'), false);
+  assert.equal(h.elements.get('copy-dialog').open, false); assert.equal(h.elements.get('source').selected, true);
 });

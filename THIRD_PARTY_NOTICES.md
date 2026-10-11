@@ -1,31 +1,11 @@
 # Third-party notices
 
-## InstagramUnfollowers
+The project retains the original InstagramUnfollowers MIT license in LICENSE. The current console scanner replaces the prior bundled UI and does not distribute or use Preact.
 
-The supplied bundle is derived from [davidarroyo1234/InstagramUnfollowers](https://github.com/davidarroyo1234/InstagramUnfollowers). Its original MIT license and copyright notice are retained in [LICENSE](LICENSE). The read-only modifications do not imply endorsement by the original author.
+Repository-local skills include MIT-licensed material from:
 
-## Preact
+- **DietrichGebert/ponytail** — `.agents/skills/ponytail/LICENSE`; adapted main skill with project constraints.
+- **backnotprop/pstack** — `.agents/skills/pstack/LICENSE`; selected experience-first, subtraction and code-quality references.
+- **cursor/plugins, Cursor Team Kit** — `.agents/skills/thermo-nuclear-code-quality-review/LICENSE`; adapted strict code-quality review skill.
 
-The bundle includes Preact and compatibility code. [Preact](https://github.com/preactjs/preact) uses the following license:
-
-The MIT License (MIT)
-
-Copyright (c) 2015-present Jason Miller
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Source URLs and source identifiers are recorded in each skill. Third-party attribution does not imply author endorsement of this project.

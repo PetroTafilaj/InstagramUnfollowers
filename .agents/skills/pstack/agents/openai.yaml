@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pstack Project Review"
+  short_description: "Apply pstack principles to this static project"
+  default_prompt: "Use $pstack to refactor and verify the landing page."

@@ -3,45 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A read-only Instagram follower checker. Copy the script, scan your own account, search and filter results, and export locally.">
+  <meta name="description" content="Copy a read-only Instagram follower checker. Run it in the console and automatically download your results as CSV.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Instagram Unfollowers · Read only</title>
+  <title>Instagram Unfollowers · Console checker</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/site.css">
   <script src="assets/site.js" defer></script>
 </head>
 <body>
   <main>
-    <header><a class="brand" href="./" aria-label="Home"><span class="brand-icon" aria-hidden="true">↔</span> FOLLOW CHECK</a><span class="badge"><span></span> READ ONLY</span></header>
+    <header><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">↔</span> FOLLOW CHECK</a><span class="badge"><span></span> READ ONLY</span></header>
     <section class="hero" aria-labelledby="title">
-      <p class="eyebrow">YOUR ACCOUNT. YOUR RESULTS.</p>
-      <h1 id="title">See who doesn’t<br><em>follow you back.</em></h1>
-      <p class="intro">Scan the accounts you follow. Search, filter, and export the results. Every account stays exactly as you left it.</p>
-      <div class="actions"><button id="copy" class="primary" disabled>Loading code… <span aria-hidden="true">↗</span></button><a class="secondary" href="#how">How it works <span aria-hidden="true">↓</span></a></div>
-      <p id="copy-status" class="status" role="status" aria-live="polite">Loading the script from this site.</p>
-      <div class="guarantees"><span>✓ GET requests only</span><span>✓ Local avatars</span><span>✓ No analytics</span></div>
+      <p class="eyebrow">A CLEARER VIEW OF YOUR FOLLOWING</p>
+      <h1 id="title">Who doesn’t<br><em>follow you back?</em></h1>
+      <p class="intro">One script. Your browser console. A CSV with the results, downloaded automatically.</p>
+      <div class="actions"><button id="copy" class="primary" disabled><span id="copy-label">Loading code…</span><span class="button-symbol" aria-hidden="true">↗</span></button><a class="secondary" href="#how">How to run it <span aria-hidden="true">↓</span></a></div>
+      <p id="copy-status" class="status" role="status" aria-live="polite">Loading the script.</p>
+      <div class="guarantees"><span>✓ Console only</span><span>✓ GET requests only</span><span>✓ Automatic CSV</span></div>
     </section>
     <section class="panel" id="how" aria-labelledby="how-title">
-      <div class="section-heading"><h2 id="how-title">Three steps. One clear list.</h2><span>01 — 03</span></div>
+      <div class="section-heading"><h2 id="how-title">Copy. Paste. Done.</h2><span>01 — 03</span></div>
       <ol class="steps">
-        <li><span class="step-number">01</span><div><h3>Copy the code</h3><p>Use the button above. You can also inspect and select the full script below.</p></div></li>
-        <li><span class="step-number">02</span><div><h3>Open Instagram</h3><p>Log into your account at <a href="https://www.instagram.com/" target="_blank" rel="noopener noreferrer">www.instagram.com ↗</a>. Open Developer Tools → Console.</p></div></li>
-        <li><span class="step-number">03</span><div><h3>Run and review</h3><p>Paste the code, press Enter, and start the scan. Search by username or name, filter the list, then copy it or export JSON / CSV.</p></div></li>
+        <li><span class="step-number">01</span><div><h3>Copy the script</h3><p>Click Copy code. You can inspect the complete source below.</p></div></li>
+        <li><span class="step-number">02</span><div><h3>Open the console</h3><p>Sign in at <a href="https://www.instagram.com/" target="_blank" rel="noopener noreferrer">www.instagram.com ↗</a>. Open Developer Tools → Console.</p></div></li>
+        <li><span class="step-number">03</span><div><h3>Paste and press Enter</h3><p>The scan starts immediately. Keep the tab open; progress appears in the console and the CSV downloads when it finishes.</p></div></li>
       </ol>
-      <p class="note">The script replaces the current tab’s interface. Refresh the tab to return to Instagram. Browsers may block console pasting; inspect the code before using any browser-provided override.</p>
-    </section>
-    <section class="features" aria-label="Features">
-      <article><span class="feature-icon" aria-hidden="true">⌕</span><h3>Find your people</h3><p>Keep the original search, private / verified / missing-photo filters, selection, and pagination.</p></article>
-      <article><span class="feature-icon" aria-hidden="true">☆</span><h3>Organize the list</h3><p>Keep a local whitelist with import, export, and pasted usernames. Pause scanning when needed.</p></article>
-      <article><span class="feature-icon" aria-hidden="true">↓</span><h3>Take it with you</h3><p>Copy the displayed usernames or export the filtered results as JSON and CSV.</p></article>
+      <p class="note">The Instagram page stays as it is. A scan can take several minutes for large lists. If a scan stops early, the console explains why.</p>
     </section>
     <section class="code-panel" aria-labelledby="code-title">
-      <div class="section-heading"><h2 id="code-title">Inspect the script</h2><button id="select" class="small" disabled>Select all</button></div>
-      <details id="source-details"><summary>View the complete runnable code <span id="code-size"></span></summary><label class="sr-only" for="source">Complete Instagram read-only script</label><textarea id="source" readonly spellcheck="false" aria-label="Complete Instagram read-only script"></textarea></details>
-      <p class="note">The landing page never runs the Instagram script. The Copy button copies the exact source shown here.</p>
+      <div class="section-heading"><h2 id="code-title">Nothing hidden</h2><button id="select" class="small" disabled>Select code</button></div>
+      <details id="source-details"><summary>Inspect the full script <span id="code-size"></span></summary><label class="sr-only" for="source">Complete console scanner script</label><textarea id="source" readonly spellcheck="false"></textarea></details>
+      <p class="note">This page copies the script as text. It never runs it. The script reads Instagram’s follower lists and creates the CSV locally.</p>
     </section>
-    <section class="privacy" aria-labelledby="privacy-title"><h2 id="privacy-title">What this version does</h2><p>The scanner reads follower and following lists through Instagram’s internal API using your existing signed-in browser session. It reads the account ID cookie, stores scan results and preferences locally on Instagram’s origin, and generates avatars in your browser. It contains no account-changing requests.</p><p>Read-only does not mean risk-free: Instagram may limit automated reads, and its internal API can change. Incomplete scans are labeled. Logging out afterward does not undo previous activity.</p></section>
-    <footer><p>Based on <a href="https://github.com/davidarroyo1234/InstagramUnfollowers" target="_blank" rel="noopener noreferrer">David Arroyo’s InstagramUnfollowers</a> · MIT licensed</p><p>Independent project. Not affiliated with Instagram or Meta.</p></footer>
+    <section class="privacy" aria-labelledby="privacy-title"><h2 id="privacy-title">A reader, with clear limits.</h2><p>No unfollow controls, account-changing requests, remote avatars, or analytics. Search and filtered exports remain available as console commands. Instagram can limit automated reads; incomplete scans are reported and aren’t exported as complete results.</p></section>
+    <footer><p>Inspired by <a href="https://github.com/davidarroyo1234/InstagramUnfollowers" target="_blank" rel="noopener noreferrer">InstagramUnfollowers</a> · MIT licensed</p><p>Independent project. Not affiliated with Instagram or Meta.</p></footer>
   </main>
+  <dialog id="copy-dialog" aria-labelledby="copied-title" aria-describedby="copied-description">
+    <button id="close-dialog" class="dialog-close" aria-label="Close confirmation">×</button>
+    <div class="copy-success-icon" aria-hidden="true"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34"/><path d="m24 40 11 11 22-24"/></svg></div>
+    <p class="eyebrow">READY WHEN YOU ARE</p><h2 id="copied-title">Code copied.</h2>
+    <p id="copied-description">Open Instagram’s console, paste, and press Enter. The scan starts automatically and downloads your CSV when complete.</p>
+    <button id="dialog-done" class="primary">Got it <span aria-hidden="true">↗</span></button>
+    <p class="dialog-footnote">Run it on <strong>www.instagram.com</strong>.</p>
+  </dialog>
 </body>
 </html>

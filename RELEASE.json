@@ -1,7 +1,10 @@
 {
   "repository": "PetroTafilaj/InstagramUnfollowers",
-  "scanner_sha256": "145a1a226b945247eef2228bc288dbf357c06d57769b660c2cc3d95a4175b43c",
-  "automated_tests": 13,
+  "version": "2.0.0",
+  "scanner_sha256": "3d743f904af9d315d27032b05816387237c5ce898593745fc898ccdc1d01bc71",
+  "automated_tests": 20,
+  "scanner_ui": false,
+  "automatic_csv": true,
   "live_instagram_tested": false,
   "browser_visual_qa": false
 }
